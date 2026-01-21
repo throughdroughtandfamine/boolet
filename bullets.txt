@@ -594,7 +594,7 @@ local function RefreshPlayerList()
     end
     
     -- Update scroll size
-    PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, #playersList * 40)
+    PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, #playersList * 40 + 20)
     
     -- Update title
     PlayerSectionTitle.Text = "🎯 SELECT PLAYERS (" .. #playersList .. " ONLINE)"
@@ -721,3 +721,4 @@ local function AutoKillLoop()
     -- Your original AutoKillLoop code here
     -- Make sure this function exists in your script
 end
+
