@@ -1,0 +1,723 @@
+-- Services
+local Players = game:GetService('Players')
+local RunService = game:GetService('RunService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Workspace = game:GetService('Workspace')
+local Stats = game:GetService('Stats')
+local UserInputService = game:GetService('UserInputService')
+local StarterGui = game:GetService('StarterGui')
+
+local LocalPlayer = Players.LocalPlayer
+local ignoredPlayers = {}
+local whitelistedPlayers = {}
+local nextTarget = nil
+local autoKillEnabled = false
+local spectating = false
+local selectedKillEnabled = false
+
+-- Supported Games
+local Games = {
+	[132023669786646] = {
+		['Name'] = 'Da Bank',
+		['BuyPads'] = Workspace:WaitForChild('MAP'):FindFirstChild('BuyPads'),
+		['PlaceVersion'] = 0,
+	},
+	[84366677940861] = {
+		['Name'] = 'Da Uphill',
+		['BuyPads'] = Workspace:WaitForChild('MAP'):FindFirstChild('Shops'),
+		['PlaceVersion'] = 0,
+	},
+	[77369032494150] = {
+		['Name'] = 'Da Downhill',
+		['BuyPads'] = Workspace:WaitForChild('MAP'):FindFirstChild('Shops'),
+		['PlaceVersion'] = 0,
+	},
+	[15186202290] = {
+		['Name'] = 'Da Strike',
+		['BuyPads'] = Workspace:WaitForChild('MAP'):FindFirstChild('Pads'),
+	},
+}
+
+local gameConfig = Games[game.PlaceId]
+
+local function getpred()
+	local ping = tonumber(
+		Stats.Network.ServerStatsItem['Data Ping']
+			:GetValueString()
+			:split('.')[1]
+	)
+	local pred = 0.12533
+	if ping < 100 then
+		pred = 0.141987
+	end
+	if ping < 80 then
+		pred = 0.139340
+	end
+	if ping < 70 then
+		pred = 0.12533
+	end
+	if ping < 65 then
+		pred = 0.1264236
+	end
+	if ping < 50 then
+		pred = 0.13544
+	end
+	if ping < 30 then
+		pred = 0.11252476
+	end
+	return pred
+end
+
+local function HasLoaded(Player)
+	return Player.Character
+		and Player.Character:FindFirstChild('bodyvalues')
+		and Player.Character.bodyvalues:FindFirstChild('LOADED')
+end
+
+local function IsKnockedOut(Player)
+	return Player.Character
+		and Player.Character:FindFirstChild('Humanoid')
+		and Player.Character.Humanoid.PlatformStand
+end
+
+local function IsDead(Player)
+	return Player.Character
+		and Player.Character:FindFirstChild('Humanoid')
+		and Player.Character.Humanoid.Health == 0
+end
+
+local function GetEquippedTool()
+	local Tool = LocalPlayer.Character
+		and LocalPlayer.Character:FindFirstChildOfClass('Tool')
+	local Type = Tool
+		and (
+			Tool:FindFirstChild('rl') and 'Gun'
+			or Tool:FindFirstChild('Chomps') and 'Food'
+			or Tool:FindFirstChild('Skinnable') and 'Katana'
+		)
+	return Tool, Type
+end
+
+local function IsReloaded(Tool)
+	return Tool
+		and (
+			(Tool.AMMO.Value == 6 and Tool.Name == 'tactical sg')
+			or (Tool.AMMO.Value == 2 and Tool.Name == 'db')
+		)
+end
+
+local function BuyGun(Gun)
+	local success, errorMsg = pcall(function()
+		fireclickdetector(gameConfig.BuyPads[Gun].ClickDetector, 1)
+	end)
+	if not success then
+		warn("Erreur lors de l'achat de l'arme:", errorMsg)
+	end
+end
+
+local function EditToolGrip(Tool, Vec3)
+	Tool.Grip = Vec3
+	Tool.Parent = LocalPlayer.Backpack
+	Tool.Parent = LocalPlayer.Character
+end
+
+local function GetRelativePos(Obj, CF)
+	local Offset = Obj.CFrame * CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)
+	local Relative = Offset:ToObjectSpace(CF):Inverse()
+	return Relative
+end
+
+local function SkipPlayer(Player)
+	table.insert(ignoredPlayers, Player)
+end
+
+-- Whitelist functions
+local function WhitelistPlayer(Player)
+	if not table.find(whitelistedPlayers, Player) then
+		table.insert(whitelistedPlayers, Player)
+	end
+end
+
+local function RemoveWhitelist(Player)
+	for i, p in ipairs(whitelistedPlayers) do
+		if p == Player then
+			table.remove(whitelistedPlayers, i)
+			break
+		end
+	end
+end
+
+-- Helper: Find player by Username or DisplayName or partial
+local function FindPlayer(name)
+	name = name:lower()
+	for _, player in ipairs(Players:GetPlayers()) do
+		if
+			player.Name:lower() == name
+			or player.DisplayName:lower() == name
+			or string.find(player.Name:lower(), name, 1, true)
+			or string.find(player.DisplayName:lower(), name, 1, true)
+		then
+			return player
+		end
+	end
+	return nil
+end
+
+-- ScreenGui 
+local ScreenGui = Instance.new('ScreenGui')
+ScreenGui.Name = 'AutoKillGUI'
+ScreenGui.ResetOnSpawn = false -- KEEP GUI after respawn
+ScreenGui.Parent = LocalPlayer:WaitForChild('PlayerGui')
+ScreenGui.Enabled = true
+
+-- Variables
+local Frame
+local dragging = false
+local dragInput, dragStart, startPos
+
+Frame = Instance.new('Frame', ScreenGui)
+Frame.Size = UDim2.new(0, 320, 0, 550)
+Frame.Position = UDim2.new(0, 40, 0, 40)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Frame.BorderSizePixel = 0
+Frame.BackgroundTransparency = 0.1
+Frame.Active = true
+Frame.Draggable = false
+
+-- Drag functions
+local function updateInput(input)
+	local delta = input.Position - dragStart
+	Frame.Position = UDim2.new(
+		startPos.X.Scale,
+		startPos.X.Offset + delta.X,
+		startPos.Y.Scale,
+		startPos.Y.Offset + delta.Y
+	)
+end
+
+Frame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = Frame.Position
+
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+			end
+		end)
+	end
+end)
+
+Frame.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		dragInput = input
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if input == dragInput and dragging then
+		updateInput(input)
+	end
+end)
+
+-- Toggle GUI visibility
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.RightShift and not gameProcessed then
+		ScreenGui.Enabled = not ScreenGui.Enabled
+	elseif
+		input.KeyCode == Enum.KeyCode.K
+		and not gameProcessed
+		and nextTarget
+	then
+		SkipPlayer(nextTarget)
+	elseif input.KeyCode == Enum.KeyCode.Delete and not gameProcessed then
+		ScreenGui.Enabled = not ScreenGui.Enabled
+	end
+end)
+
+-- OneTap function (unchanged)
+local function OneTap(Player)
+	if table.find(whitelistedPlayers, Player) then
+		print('Skipping whitelisted player:', Player.Name)
+		return
+	end
+
+	local tsg = LocalPlayer.Character:FindFirstChild('tactical sg')
+		or LocalPlayer.Backpack:FindFirstChild('tactical sg')
+		or (
+			BuyGun('[TacticalShotgun]')
+			and LocalPlayer.Backpack:FindFirstChild('tactical sg')
+		)
+
+	if tsg then
+		LocalPlayer.Character.Humanoid:EquipTool(tsg)
+	else
+		print('No tactical sg found!')
+		return
+	end
+
+	local Tool, Type = GetEquippedTool()
+	if Type ~= 'Gun' then
+		return
+	end
+	if
+		not Player.Character or not Player.Character:FindFirstChild('Humanoid')
+	then
+		return
+	end
+
+	task.wait(0.1)
+
+	workspace.CurrentCamera.CameraSubject = Player.Character.Humanoid
+	spectating = true
+
+	local oldgrip = Tool.Grip
+	local newgrip = GetRelativePos(
+		LocalPlayer.Character.RightHand,
+		Player.Character.HumanoidRootPart.CFrame
+			* CFrame.Angles(math.rad(-90), 0, 0)
+	)
+	EditToolGrip(Tool, newgrip)
+	task.wait(0.05)
+
+	local head = Player.Character:FindFirstChild('Head')
+	if not head then
+		return
+	end
+
+	local targetPos = head.Position + head.Velocity * getpred()
+	if ReplicatedStorage:FindFirstChild('MAINEVENT') then
+		ReplicatedStorage.MAINEVENT:FireServer('MOUSE', targetPos)
+	end
+
+	Tool:Activate()
+	task.wait(0.05)
+	EditToolGrip(Tool, oldgrip)
+
+	if Tool:FindFirstChild('rl') then
+		Tool.rl:FireServer()
+	end
+
+	local timeout = tick() + 3
+	while not IsReloaded(Tool) and tick() < timeout do
+		task.wait(0.2)
+	end
+end
+
+-- AutoKill Loop
+local function AutoKillLoop()
+	while autoKillEnabled do
+		for _, v in pairs(Players:GetPlayers()) do
+			if
+				v == LocalPlayer
+				or not HasLoaded(v)
+				or table.find(ignoredPlayers, v)
+				or table.find(whitelistedPlayers, v)
+			then
+				continue
+			end
+			pcall(function()
+				nextTarget = v
+				while
+					not IsKnockedOut(v)
+					and not IsDead(v)
+					and autoKillEnabled
+				do
+					OneTap(v)
+					task.wait(0.5)
+				end
+			end)
+			task.wait(0.2)
+		end
+		task.wait(1)
+	end
+end
+
+-- MAIN UI
+
+pcall(function()
+    local oldUI = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoKillGUI")
+    if oldUI then
+        oldUI:Destroy()
+    end
+end)
+
+-- Create UI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BulletTP_UI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 400, 0, 500)
+MainFrame.Position = UDim2.new(0.5, -200, 0.5, -250)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+-- Make frame draggable
+local dragging = false
+local dragStart, startPos
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Position = UDim2.new(0, 0, 0, 0)
+Title.Text = "BULLET TP"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+Title.BorderSizePixel = 0
+Title.Parent = MainFrame
+
+-- Player Selection Section
+local PlayerSection = Instance.new("Frame")
+PlayerSection.Size = UDim2.new(1, -20, 0, 300)
+PlayerSection.Position = UDim2.new(0, 10, 0, 50)
+PlayerSection.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+PlayerSection.BorderSizePixel = 0
+PlayerSection.Parent = MainFrame
+
+local PlayerSectionTitle = Instance.new("TextLabel")
+PlayerSectionTitle.Size = UDim2.new(1, 0, 0, 30)
+PlayerSectionTitle.Position = UDim2.new(0, 0, 0, 0)
+PlayerSectionTitle.Text = "🎯 SELECT PLAYERS"
+PlayerSectionTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlayerSectionTitle.Font = Enum.Font.GothamBold
+PlayerSectionTitle.TextSize = 14
+PlayerSectionTitle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+PlayerSectionTitle.BorderSizePixel = 0
+PlayerSectionTitle.Parent = PlayerSection
+
+-- Refresh button
+local RefreshButton = Instance.new("TextButton")
+RefreshButton.Size = UDim2.new(0, 80, 0, 25)
+RefreshButton.Position = UDim2.new(1, -85, 0, 2)
+RefreshButton.Text = "🔄 REFRESH"
+RefreshButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+RefreshButton.Font = Enum.Font.Gotham
+RefreshButton.TextSize = 12
+RefreshButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+RefreshButton.BorderSizePixel = 0
+RefreshButton.Parent = PlayerSectionTitle
+
+-- Scroll frame for players
+local PlayerScroll = Instance.new("ScrollingFrame")
+PlayerScroll.Size = UDim2.new(1, -10, 1, -40)
+PlayerScroll.Position = UDim2.new(0, 5, 0, 35)
+PlayerScroll.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+PlayerScroll.BorderSizePixel = 0
+PlayerScroll.ScrollBarThickness = 5
+PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+PlayerScroll.Parent = PlayerSection
+
+-- Control buttons
+local ControlButtons = Instance.new("Frame")
+ControlButtons.Size = UDim2.new(1, 0, 0, 40)
+ControlButtons.Position = UDim2.new(0, 0, 1, -40)
+ControlButtons.BackgroundTransparency = 1
+ControlButtons.Parent = PlayerSection
+
+local SelectAllBtn = Instance.new("TextButton")
+SelectAllBtn.Size = UDim2.new(0.5, -5, 1, 0)
+SelectAllBtn.Position = UDim2.new(0, 0, 0, 0)
+SelectAllBtn.Text = "SELECT ALL"
+SelectAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SelectAllBtn.Font = Enum.Font.Gotham
+SelectAllBtn.TextSize = 12
+SelectAllBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+SelectAllBtn.BorderSizePixel = 0
+SelectAllBtn.Parent = ControlButtons
+
+local ClearAllBtn = Instance.new("TextButton")
+ClearAllBtn.Size = UDim2.new(0.5, -5, 1, 0)
+ClearAllBtn.Position = UDim2.new(0.5, 5, 0, 0)
+ClearAllBtn.Text = "CLEAR ALL"
+ClearAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ClearAllBtn.Font = Enum.Font.Gotham
+ClearAllBtn.TextSize = 12
+ClearAllBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+ClearAllBtn.BorderSizePixel = 0
+ClearAllBtn.Parent = ControlButtons
+
+-- Action buttons
+local KillSelectedBtn = Instance.new("TextButton")
+KillSelectedBtn.Size = UDim2.new(1, -20, 0, 40)
+KillSelectedBtn.Position = UDim2.new(0, 10, 0, 360)
+KillSelectedBtn.Text = "KILL SELECTED PLAYERS"
+KillSelectedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+KillSelectedBtn.Font = Enum.Font.GothamBold
+KillSelectedBtn.TextSize = 16
+KillSelectedBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+KillSelectedBtn.BorderSizePixel = 0
+KillSelectedBtn.Parent = MainFrame
+
+local StopKillBtn = Instance.new("TextButton")
+StopKillBtn.Size = UDim2.new(1, -20, 0, 40)
+StopKillBtn.Position = UDim2.new(0, 10, 0, 410)
+StopKillBtn.Text = "🛑 STOP KILLING"
+StopKillBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopKillBtn.Font = Enum.Font.Gotham
+StopKillBtn.TextSize = 14
+StopKillBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+StopKillBtn.BorderSizePixel = 0
+StopKillBtn.Parent = MainFrame
+
+-- Selected players display
+local SelectedLabel = Instance.new("TextLabel")
+SelectedLabel.Size = UDim2.new(1, -20, 0, 40)
+SelectedLabel.Position = UDim2.new(0, 10, 0, 460)
+SelectedLabel.Text = "Selected: None"
+SelectedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+SelectedLabel.Font = Enum.Font.Gotham
+SelectedLabel.TextSize = 12
+SelectedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SelectedLabel.BackgroundTransparency = 1
+SelectedLabel.Parent = MainFrame
+
+-- Storage
+local SelectedPlayers = {}
+local PlayerButtons = {}
+
+-- Function to create player button
+local function CreatePlayerButton(player, index)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -10, 0, 35)
+    button.Position = UDim2.new(0, 5, 0, (index - 1) * 40)
+    button.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+    button.TextColor3 = SelectedPlayers[player] and Color3.fromRGB(0, 255, 150) or Color3.fromRGB(200, 200, 200)
+    button.Font = Enum.Font.Gotham
+    button.TextSize = 12
+    button.TextXAlignment = Enum.TextXAlignment.Left
+    button.BackgroundColor3 = index % 2 == 0 and Color3.fromRGB(35, 35, 40) or Color3.fromRGB(30, 30, 35)
+    button.BorderSizePixel = 0
+    button.Parent = PlayerScroll
+    
+    -- Status indicator
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(0, 30, 1, 0)
+    status.Position = UDim2.new(1, -35, 0, 0)
+    
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        status.Text = player.Character.Humanoid.Health > 0 and "🟢" or "☠️"
+        status.TextColor3 = player.Character.Humanoid.Health > 0 and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 50, 50)
+    else
+        status.Text = "❓"
+        status.TextColor3 = Color3.fromRGB(150, 150, 150)
+    end
+    
+    status.Font = Enum.Font.GothamBold
+    status.TextSize = 16
+    status.BackgroundTransparency = 1
+    status.Parent = button
+    
+    -- Click handler
+    button.MouseButton1Click:Connect(function()
+        SelectedPlayers[player] = not SelectedPlayers[player]
+        button.TextColor3 = SelectedPlayers[player] and Color3.fromRGB(0, 255, 150) or Color3.fromRGB(200, 200, 200)
+        UpdateSelectedDisplay()
+    end)
+    
+    return button
+end
+
+-- Function to update selected display
+local function UpdateSelectedDisplay()
+    local selectedNames = {}
+    for player, selected in pairs(SelectedPlayers) do
+        if selected and player.Parent then
+            table.insert(selectedNames, player.Name)
+        end
+    end
+    
+    if #selectedNames > 0 then
+        SelectedLabel.Text = "Selected: " .. table.concat(selectedNames, ", ")
+    else
+        SelectedLabel.Text = "Selected: None"
+    end
+end
+
+-- Function to refresh player list
+local function RefreshPlayerList()
+    -- Clear existing buttons
+    for _, btn in pairs(PlayerButtons) do
+        btn:Destroy()
+    end
+    PlayerButtons = {}
+    
+    -- Get all players except yourself
+    local playersList = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            table.insert(playersList, player)
+        end
+    end
+    
+    -- Create buttons
+    for i, player in ipairs(playersList) do
+        local btn = CreatePlayerButton(player, i)
+        PlayerButtons[player] = btn
+    end
+    
+    -- Update scroll size
+    PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, #playersList * 40)
+    
+    -- Update title
+    PlayerSectionTitle.Text = "🎯 SELECT PLAYERS (" .. #playersList .. " ONLINE)"
+end
+
+-- Button functions
+RefreshButton.MouseButton1Click:Connect(function()
+    RefreshPlayerList()
+end)
+
+SelectAllBtn.MouseButton1Click:Connect(function()
+    SelectedPlayers = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            SelectedPlayers[player] = true
+        end
+    end
+    RefreshPlayerList()
+    UpdateSelectedDisplay()
+end)
+
+ClearAllBtn.MouseButton1Click:Connect(function()
+    SelectedPlayers = {}
+    RefreshPlayerList()
+    UpdateSelectedDisplay()
+end)
+
+KillSelectedBtn.MouseButton1Click:Connect(function()
+    selectedKillEnabled = not selectedKillEnabled
+    
+    if selectedKillEnabled then
+        KillSelectedBtn.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+        KillSelectedBtn.Text = "⏹️ STOP KILLING SELECTED"
+        
+        -- Get selected players
+        local targets = {}
+        for player, selected in pairs(SelectedPlayers) do
+            if selected and player.Parent then
+                table.insert(targets, player)
+            end
+        end
+        
+        -- Start killing loop
+        task.spawn(function()
+            while selectedKillEnabled and #targets > 0 do
+                for _, target in ipairs(targets) do
+                    if not selectedKillEnabled then break end
+                    
+                    if target and target.Parent and HasLoaded(target) then
+                        if not table.find(ignoredPlayers, target) and not table.find(whitelistedPlayers, target) then
+                            nextTarget = target
+                            while selectedKillEnabled and target.Parent and 
+                                  not IsKnockedOut(target) and 
+                                  not IsDead(target) and
+                                  SelectedPlayers[target] do
+                                OneTap(target)
+                                task.wait(0.5)
+                            end
+                        end
+                    end
+                    task.wait(0.2)
+                end
+                task.wait(1)
+            end
+        end)
+    else
+        KillSelectedBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        KillSelectedBtn.Text = "🔫 KILL SELECTED PLAYERS"
+    end
+end)
+
+StopKillBtn.MouseButton1Click:Connect(function()
+    autoKillEnabled = false
+    selectedKillEnabled = false
+    workspace.CurrentCamera.CameraSubject = LocalPlayer.Character:FindFirstChild('Humanoid')
+    spectating = false
+    
+    KillSelectedBtn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+    KillSelectedBtn.Text = "🔫 KILL SELECTED PLAYERS"
+end)
+
+-- Auto-refresh on player changes
+Players.PlayerAdded:Connect(function()
+    task.wait(0.5)
+    RefreshPlayerList()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    SelectedPlayers[player] = nil
+    if PlayerButtons[player] then
+        PlayerButtons[player]:Destroy()
+        PlayerButtons[player] = nil
+    end
+    UpdateSelectedDisplay()
+    task.wait(0.5)
+    RefreshPlayerList()
+end)
+
+-- Initial refresh
+task.spawn(function()
+    task.wait(2)
+    RefreshPlayerList()
+end)
+
+-- Toggle UI with RightShift
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if input.KeyCode == Enum.KeyCode.RightShift and not gameProcessed then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    elseif input.KeyCode == Enum.KeyCode.Delete and not gameProcessed then
+        ScreenGui.Enabled = not ScreenGui.Enabled
+    elseif input.KeyCode == Enum.KeyCode.K and not gameProcessed and nextTarget then
+        SkipPlayer(nextTarget)
+    end
+end)
+
+-- OneTap function (keep original)
+local function OneTap(Player)
+    -- Your original OneTap function code here
+    -- Make sure this function exists in your script
+end
+
+-- AutoKillLoop function (keep original)
+local function AutoKillLoop()
+    -- Your original AutoKillLoop code here
+    -- Make sure this function exists in your script
+end
