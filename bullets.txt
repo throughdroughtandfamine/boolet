@@ -15,7 +15,7 @@ local autoKillEnabled = false
 local spectating = false
 local selectedKillEnabled = false
 
--- Supported Games
+-- Jeux supportÃ©s
 local Games = {
 	[132023669786646] = {
 		['Name'] = 'Da Bank',
@@ -163,14 +163,14 @@ local function FindPlayer(name)
 	return nil
 end
 
--- ScreenGui 
+-- ScreenGui (persistent and movable)
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'AutoKillGUI'
 ScreenGui.ResetOnSpawn = false -- KEEP GUI after respawn
 ScreenGui.Parent = LocalPlayer:WaitForChild('PlayerGui')
 ScreenGui.Enabled = true
 
--- Variables
+-- Variables for dragging
 local Frame
 local dragging = false
 local dragInput, dragStart, startPos
@@ -334,24 +334,28 @@ local function AutoKillLoop()
 	end
 end
 
--- MAIN UI
-
+-- Destroy any existing UI first
 pcall(function()
     local oldUI = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoKillGUI")
     if oldUI then
         oldUI:Destroy()
     end
+    local oldUI2 = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("BulletTP_UI")
+    if oldUI2 then
+        oldUI2:Destroy()
+    end
 end)
 
--- Create UI
+-- Create SINGLE UI
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "BulletTP_UI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
+-- WIDER MAIN FRAME
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 400, 0, 500)
-MainFrame.Position = UDim2.new(0.5, -200, 0.5, -250)
+MainFrame.Size = UDim2.new(0, 420, 0, 550)
+MainFrame.Position = UDim2.new(0.5, -210, 0.5, -275)
 MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
@@ -406,7 +410,7 @@ Title.Parent = MainFrame
 
 -- Player Selection Section
 local PlayerSection = Instance.new("Frame")
-PlayerSection.Size = UDim2.new(1, -20, 0, 300)
+PlayerSection.Size = UDim2.new(1, -20, 0, 350)
 PlayerSection.Position = UDim2.new(0, 10, 0, 50)
 PlayerSection.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
 PlayerSection.BorderSizePixel = 0
@@ -423,25 +427,13 @@ PlayerSectionTitle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 PlayerSectionTitle.BorderSizePixel = 0
 PlayerSectionTitle.Parent = PlayerSection
 
--- Refresh button
-local RefreshButton = Instance.new("TextButton")
-RefreshButton.Size = UDim2.new(0, 80, 0, 25)
-RefreshButton.Position = UDim2.new(1, -85, 0, 2)
-RefreshButton.Text = "🔄 REFRESH"
-RefreshButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-RefreshButton.Font = Enum.Font.Gotham
-RefreshButton.TextSize = 12
-RefreshButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
-RefreshButton.BorderSizePixel = 0
-RefreshButton.Parent = PlayerSectionTitle
-
 -- Scroll frame for players
 local PlayerScroll = Instance.new("ScrollingFrame")
 PlayerScroll.Size = UDim2.new(1, -10, 1, -40)
 PlayerScroll.Position = UDim2.new(0, 5, 0, 35)
 PlayerScroll.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
 PlayerScroll.BorderSizePixel = 0
-PlayerScroll.ScrollBarThickness = 5
+PlayerScroll.ScrollBarThickness = 6
 PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 PlayerScroll.Parent = PlayerSection
 
@@ -477,7 +469,7 @@ ClearAllBtn.Parent = ControlButtons
 -- Action buttons
 local KillSelectedBtn = Instance.new("TextButton")
 KillSelectedBtn.Size = UDim2.new(1, -20, 0, 40)
-KillSelectedBtn.Position = UDim2.new(0, 10, 0, 360)
+KillSelectedBtn.Position = UDim2.new(0, 10, 0, 410)
 KillSelectedBtn.Text = "KILL SELECTED PLAYERS"
 KillSelectedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 KillSelectedBtn.Font = Enum.Font.GothamBold
@@ -488,7 +480,7 @@ KillSelectedBtn.Parent = MainFrame
 
 local StopKillBtn = Instance.new("TextButton")
 StopKillBtn.Size = UDim2.new(1, -20, 0, 40)
-StopKillBtn.Position = UDim2.new(0, 10, 0, 410)
+StopKillBtn.Position = UDim2.new(0, 10, 0, 460)
 StopKillBtn.Text = "🛑 STOP KILLING"
 StopKillBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 StopKillBtn.Font = Enum.Font.Gotham
@@ -500,7 +492,7 @@ StopKillBtn.Parent = MainFrame
 -- Selected players display
 local SelectedLabel = Instance.new("TextLabel")
 SelectedLabel.Size = UDim2.new(1, -20, 0, 40)
-SelectedLabel.Position = UDim2.new(0, 10, 0, 460)
+SelectedLabel.Position = UDim2.new(0, 10, 0, 510)
 SelectedLabel.Text = "Selected: None"
 SelectedLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 SelectedLabel.Font = Enum.Font.Gotham
@@ -513,11 +505,11 @@ SelectedLabel.Parent = MainFrame
 local SelectedPlayers = {}
 local PlayerButtons = {}
 
--- Function to create player button
+-- Function to create player button (CLEAN - NO STATUS)
 local function CreatePlayerButton(player, index)
     local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -10, 0, 35)
-    button.Position = UDim2.new(0, 5, 0, (index - 1) * 40)
+    button.Size = UDim2.new(1, -10, 0, 32) -- Slightly taller for better click area
+    button.Position = UDim2.new(0, 5, 0, (index - 1) * 37) -- 37px spacing per player
     button.Text = player.DisplayName .. " (@" .. player.Name .. ")"
     button.TextColor3 = SelectedPlayers[player] and Color3.fromRGB(0, 255, 150) or Color3.fromRGB(200, 200, 200)
     button.Font = Enum.Font.Gotham
@@ -527,23 +519,7 @@ local function CreatePlayerButton(player, index)
     button.BorderSizePixel = 0
     button.Parent = PlayerScroll
     
-    -- Status indicator
-    local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(0, 30, 1, 0)
-    status.Position = UDim2.new(1, -35, 0, 0)
-    
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        status.Text = player.Character.Humanoid.Health > 0 and "🟢" or "☠️"
-        status.TextColor3 = player.Character.Humanoid.Health > 0 and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 50, 50)
-    else
-        status.Text = "❓"
-        status.TextColor3 = Color3.fromRGB(150, 150, 150)
-    end
-    
-    status.Font = Enum.Font.GothamBold
-    status.TextSize = 16
-    status.BackgroundTransparency = 1
-    status.Parent = button
+    -- NO STATUS INDICATOR - Clean look
     
     -- Click handler
     button.MouseButton1Click:Connect(function()
@@ -593,18 +569,17 @@ local function RefreshPlayerList()
         PlayerButtons[player] = btn
     end
     
-    -- Update scroll size
-    PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, #playersList * 40 + 35)
+    -- FIXED CanvasSize calculation
+    -- Button height: 32px + 5px spacing = 37px per player
+    -- Add 45px padding to ensure last button is fully visible
+    local totalHeight = #playersList * 37 + 45
+    PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
     
     -- Update title
     PlayerSectionTitle.Text = "🎯 SELECT PLAYERS (" .. #playersList .. " ONLINE)"
 end
 
 -- Button functions
-RefreshButton.MouseButton1Click:Connect(function()
-    RefreshPlayerList()
-end)
-
 SelectAllBtn.MouseButton1Click:Connect(function()
     SelectedPlayers = {}
     for _, player in ipairs(Players:GetPlayers()) do
@@ -676,8 +651,8 @@ StopKillBtn.MouseButton1Click:Connect(function()
     KillSelectedBtn.Text = "🔫 KILL SELECTED PLAYERS"
 end)
 
--- Auto-refresh on player changes
-Players.PlayerAdded:Connect(function()
+-- AUTO-REFRESH on player changes (NO REFRESH BUTTON NEEDED)
+Players.PlayerAdded:Connect(function(player)
     task.wait(0.5)
     RefreshPlayerList()
 end)
@@ -691,6 +666,14 @@ Players.PlayerRemoving:Connect(function(player)
     UpdateSelectedDisplay()
     task.wait(0.5)
     RefreshPlayerList()
+end)
+
+-- Periodic refresh to handle player state changes
+spawn(function()
+    while true do
+        task.wait(5) -- Refresh every 5 seconds
+        RefreshPlayerList()
+    end
 end)
 
 -- Initial refresh
@@ -709,17 +692,3 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         SkipPlayer(nextTarget)
     end
 end)
-
--- OneTap function (keep original)
-local function OneTap(Player)
-    -- Your original OneTap function code here
-    -- Make sure this function exists in your script
-end
-
--- AutoKillLoop function (keep original)
-local function AutoKillLoop()
-    -- Your original AutoKillLoop code here
-    -- Make sure this function exists in your script
-end
-
-
