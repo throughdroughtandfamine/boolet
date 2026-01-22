@@ -163,7 +163,7 @@ local function FindPlayer(name)
 	return nil
 end
 
--- ScreenGui (persistent and movable)
+-- ScreenGui
 local ScreenGui = Instance.new('ScreenGui')
 ScreenGui.Name = 'AutoKillGUI'
 ScreenGui.ResetOnSpawn = false -- KEEP GUI after respawn
@@ -352,7 +352,7 @@ ScreenGui.Name = "BulletTP_UI"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- WIDER MAIN FRAME
+-- MAIN FRAME
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, 420, 0, 550)
 MainFrame.Position = UDim2.new(0.5, -210, 0.5, -275)
@@ -360,7 +360,7 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 
--- Make frame draggable
+-- Makes frame draggable
 local dragging = false
 local dragStart, startPos
 
@@ -427,7 +427,7 @@ PlayerSectionTitle.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
 PlayerSectionTitle.BorderSizePixel = 0
 PlayerSectionTitle.Parent = PlayerSection
 
--- Scroll frame for players
+-- Scroll frame
 local PlayerScroll = Instance.new("ScrollingFrame")
 PlayerScroll.Size = UDim2.new(1, -10, 1, -40)
 PlayerScroll.Position = UDim2.new(0, 5, 0, 35)
@@ -505,7 +505,7 @@ SelectedLabel.Parent = MainFrame
 local SelectedPlayers = {}
 local PlayerButtons = {}
 
--- Function to create player button (CLEAN - NO STATUS)
+-- Function to create player button
 local function CreatePlayerButton(player, index)
     local button = Instance.new("TextButton")
     button.Size = UDim2.new(1, -10, 0, 32) -- Slightly taller for better click area
@@ -519,7 +519,6 @@ local function CreatePlayerButton(player, index)
     button.BorderSizePixel = 0
     button.Parent = PlayerScroll
     
-    -- NO STATUS INDICATOR - Clean look
     
     -- Click handler
     button.MouseButton1Click:Connect(function()
@@ -569,9 +568,6 @@ local function RefreshPlayerList()
         PlayerButtons[player] = btn
     end
     
-    -- FIXED CanvasSize calculation
-    -- Button height: 32px + 5px spacing = 37px per player
-    -- Add 45px padding to ensure last button is fully visible
     local totalHeight = #playersList * 37 + 45
     PlayerScroll.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
     
@@ -692,3 +688,4 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         SkipPlayer(nextTarget)
     end
 end)
+
