@@ -15,7 +15,7 @@ local autoKillEnabled = false
 local spectating = false
 local selectedKillEnabled = false
 
--- Jeux supportÃ©s
+-- Supported games
 local Games = {
 	[132023669786646] = {
 		['Name'] = 'Da Bank',
@@ -688,4 +688,5 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         SkipPlayer(nextTarget)
     end
 end)
+
 
